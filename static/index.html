@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>RAG Eval Platform</title>
+  <style>
+    :root { font-family: system-ui, sans-serif; color: #1a1a1a; background: #f6f7fb; }
+    body { margin: 0; padding: 1.5rem; max-width: 960px; margin-inline: auto; }
+    h1 { font-size: 1.35rem; }
+    section { background: #fff; border-radius: 10px; padding: 1rem 1.25rem; margin-bottom: 1rem; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+    label { display: block; font-size: 0.85rem; margin-top: 0.5rem; color: #444; }
+    input, textarea, button, select { width: 100%; box-sizing: border-box; margin-top: 0.25rem; padding: 0.45rem 0.5rem; border: 1px solid #ccc; border-radius: 6px; }
+    textarea { min-height: 120px; font-family: ui-monospace, monospace; font-size: 0.85rem; }
+    button { cursor: pointer; background: #2563eb; color: #fff; border: none; font-weight: 600; margin-top: 0.75rem; width: auto; padding: 0.5rem 1rem; }
+    button.secondary { background: #64748b; }
+    pre { background: #0f172a; color: #e2e8f0; padding: 0.75rem; border-radius: 8px; overflow: auto; font-size: 0.8rem; max-height: 320px; }
+    .row { display: grid; gap: 0.75rem; grid-template-columns: 1fr 1fr; }
+    @media (max-width: 720px) { .row { grid-template-columns: 1fr; } }
+    .hint { font-size: 0.8rem; color: #64748b; margin-top: 0.25rem; }
+  </style>
+</head>
+<body>
+  <h1>RAG / Agent 离线评测台</h1>
+  <p class="hint">调用任意 HTTP 接口批量跑题、打分、对比两次实验。API 文档：<a href="/docs">/docs</a></p>
+
+  <section>
+    <h2>1. 新建数据集</h2>
+    <label>名称 <input id="dsName" placeholder="my_dataset" /></label>
+    <label>描述 <input id="dsDesc" placeholder="optional" /></label>
+    <button type="button" id="btnCreateDs">创建</button>
+    <p class="hint">创建后记住 <strong>dataset_id</strong>（见下方输出）。</p>
+    <pre id="outDs"></pre>
+  </section>
+
+  <section>
+    <h2>2. 导入评测用例（JSON 数组）</h2>
+    <label>dataset_id <input id="casesDsId" type="number" /></label>
+    <label>用例 JSON（<code>question</code> 必填；可选 <code>reference_answer</code>, <code>must_contain</code>, <code>tags</code>）</label>
+    <textarea id="casesJson">[
+  {"question": "什么是 RAG？", "reference_answer": "检索增强生成", "must_contain": ["检索"]},
+  {"question": "文档里没有的问题示例", "reference_answer": "", "must_contain": []}
+]</textarea>
+    <button type="button" id="btnUploadCases">上传用例</button>
+    <pre id="outCases"></pre>
+  </section>
+
+  <section>
+    <h2>3. 创建实验 Run（指向你的 Agent HTTP）</h2>
+    <div class="row">
+      <label>dataset_id <input id="runDsId" type="number" /></label>
+      <label>run 名称 <input id="runName" placeholder="baseline_v1" /></label>
+    </div>
+    <label>目标 URL（POST） <input id="runUrl" placeholder="http://host.docker.internal:8080/ask" /></label>
+    <label>响应中取答案的 JSON 路径（可选，如 <code>answer</code> 或 <code>data.text</code>，留空则用整段 JSON 字符串）</label>
+    <input id="runPath" placeholder="" />
+    <label>请求体模板（字符串里用 <code>{question}</code> 占位）</label>
+    <textarea id="runBody">{"question": "{question}"}</textarea>
+    <button type="button" id="btnCreateRun">创建 Run</button>
+    <pre id="outRun"></pre>
+  </section>
+
+  <section>
+    <h2>4. 执行与打分</h2>
+    <div class="row">
+      <label>run_id <input id="execRunId" type="number" /></label>
+      <label>&nbsp;</label>
+    </div>
+    <button type="button" id="btnExec">执行批量请求</button>
+    <button type="button" class="secondary" id="btnScore">LLM+规则打分</button>
+    <p class="hint">打分需在服务端配置 <code>JUDGE_API_KEY</code>（兼容 OpenAI Chat Completions）。仅规则分可不配 Key。</p>
+    <pre id="outExec"></pre>
+  </section>
+
+  <section>
+    <h2>5. 对比两次 Run</h2>
+    <div class="row">
+      <label>run_a_id <input id="cmpA" type="number" /></label>
+      <label>run_b_id <input id="cmpB" type="number" /></label>
+    </div>
+    <button type="button" id="btnCmp">对比指标</button>
+    <pre id="outCmp"></pre>
+  </section>
+
+  <script>
+    const api = (path, opt = {}) => fetch(path, { headers: { 'Content-Type': 'application/json' }, ...opt }).then(async r => {
+      const t = await r.text();
+      try { return JSON.parse(t); } catch { return t; }
+    });
+
+    document.getElementById('btnCreateDs').onclick = async () => {
+      const name = document.getElementById('dsName').value.trim();
+      const description = document.getElementById('dsDesc').value.trim();
+      const res = await api('/datasets', { method: 'POST', body: JSON.stringify({ name, description }) });
+      document.getElementById('outDs').textContent = JSON.stringify(res, null, 2);
+      if (res.id) { document.getElementById('casesDsId').value = res.id; document.getElementById('runDsId').value = res.id; }
+    };
+
+    document.getElementById('btnUploadCases').onclick = async () => {
+      const dataset_id = Number(document.getElementById('casesDsId').value);
+      const cases = JSON.parse(document.getElementById('casesJson').value);
+      const res = await api(`/datasets/${dataset_id}/cases`, { method: 'POST', body: JSON.stringify({ cases }) });
+      document.getElementById('outCases').textContent = JSON.stringify(res, null, 2);
+    };
+
+    document.getElementById('btnCreateRun').onclick = async () => {
+      const dataset_id = Number(document.getElementById('runDsId').value);
+      const name = document.getElementById('runName').value.trim();
+      const target_url = document.getElementById('runUrl').value.trim();
+      const response_json_path = document.getElementById('runPath').value.trim();
+      let body_template;
+      try { body_template = JSON.parse(document.getElementById('runBody').value); }
+      catch (e) { alert('body 模板不是合法 JSON'); return; }
+      const res = await api('/runs', {
+        method: 'POST',
+        body: JSON.stringify({
+          dataset_id, name, target_url, target_method: 'POST',
+          target_headers: {},
+          body_template,
+          response_json_path
+        })
+      });
+      document.getElementById('outRun').textContent = JSON.stringify(res, null, 2);
+      if (res.id) document.getElementById('execRunId').value = res.id;
+    };
+
+    document.getElementById('btnExec').onclick = async () => {
+      const run_id = Number(document.getElementById('execRunId').value);
+      const res = await api(`/runs/${run_id}/execute`, { method: 'POST' });
+      document.getElementById('outExec').textContent = JSON.stringify(res, null, 2) + '\n\n轮询 GET /runs/' + run_id + ' 查看 status';
+    };
+
+    document.getElementById('btnScore').onclick = async () => {
+      const run_id = Number(document.getElementById('execRunId').value);
+      const res = await api(`/runs/${run_id}/score`, { method: 'POST' });
+      document.getElementById('outExec').textContent = JSON.stringify(res, null, 2);
+    };
+
+    document.getElementById('btnCmp').onclick = async () => {
+      const run_a_id = Number(document.getElementById('cmpA').value);
+      const run_b_id = Number(document.getElementById('cmpB').value);
+      const res = await api(`/compare?run_a_id=${run_a_id}&run_b_id=${run_b_id}`);
+      document.getElementById('outCmp').textContent = JSON.stringify(res, null, 2);
+    };
+  </script>
+</body>
+</html>

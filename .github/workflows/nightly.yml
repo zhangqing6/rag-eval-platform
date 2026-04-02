@@ -1,0 +1,17 @@
+# 示例：定时回归。请根据实际部署修改 URL，并在 GitHub Secrets 中配置 TOKEN（若需要）。
+name: nightly-regression
+
+on:
+  schedule:
+    - cron: "0 2 * * *"
+  workflow_dispatch:
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Placeholder
+        run: |
+          echo "在此接入：启动评测平台或对已部署服务做 health check / 触发跑批 API"
+          echo "例如: curl -fsS https://your-host/health || true"

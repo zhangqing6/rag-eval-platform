@@ -1,0 +1,16 @@
+{
+  "cases": [
+    {
+      "question": "简述 RAG 的基本流程。",
+      "reference_answer": "检索相关文档后由大模型生成答案",
+      "tags": ["concept"],
+      "must_contain": ["检索"]
+    },
+    {
+      "question": "你们公司 2020 年的营收是多少？",
+      "reference_answer": "",
+      "tags": ["should_refuse_or_unknown"],
+      "must_contain": []
+    }
+  ]
+}

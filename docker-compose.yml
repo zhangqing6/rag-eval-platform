@@ -1,0 +1,14 @@
+services:
+  eval-platform:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: sqlite:///./data/eval.db
+      JUDGE_API_KEY: ${JUDGE_API_KEY:-}
+      JUDGE_BASE_URL: ${JUDGE_BASE_URL:-https://api.openai.com/v1}
+      JUDGE_MODEL: ${JUDGE_MODEL:-gpt-4o-mini}
+    volumes:
+      - ./data:/app/data
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
