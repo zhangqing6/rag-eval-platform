@@ -12,8 +12,9 @@
     label { display: block; font-size: 0.85rem; margin-top: 0.5rem; color: #444; }
     input, textarea, button, select { width: 100%; box-sizing: border-box; margin-top: 0.25rem; padding: 0.45rem 0.5rem; border: 1px solid #ccc; border-radius: 6px; }
     textarea { min-height: 120px; font-family: ui-monospace, monospace; font-size: 0.85rem; }
-    button { cursor: pointer; background: #2563eb; color: #fff; border: none; font-weight: 600; margin-top: 0.75rem; width: auto; padding: 0.5rem 1rem; }
+    button { cursor: pointer; background: #2563eb; color: #fff; border: none; font-weight: 600; margin-top: 0.75rem; width: auto; padding: 0.5rem 1rem; position: relative; z-index: 2; }
     button.secondary { background: #64748b; }
+    .btn-row { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; margin-top: 0.5rem; position: relative; z-index: 2; }
     pre { background: #0f172a; color: #e2e8f0; padding: 0.75rem; border-radius: 8px; overflow: auto; font-size: 0.8rem; max-height: 320px; }
     .row { display: grid; gap: 0.75rem; grid-template-columns: 1fr 1fr; }
     @media (max-width: 720px) { .row { grid-template-columns: 1fr; } }
@@ -66,9 +67,11 @@
       <label>run_id <input id="execRunId" type="number" /></label>
       <label>&nbsp;</label>
     </div>
-    <button type="button" id="btnExec">执行批量请求</button>
-    <button type="button" class="secondary" id="btnScore">LLM+规则打分</button>
-    <p class="hint">打分需在服务端配置 <code>JUDGE_API_KEY</code>（兼容 OpenAI Chat Completions）。仅规则分可不配 Key。</p>
+    <div class="btn-row">
+      <button type="button" id="btnExec">执行批量请求</button>
+      <button type="button" class="secondary" id="btnScore">LLM+规则打分</button>
+    </div>
+    <p class="hint">打分需在服务端配置 <code>JUDGE_API_KEY</code>（兼容 OpenAI Chat Completions）。仅规则分可不配 Key。修改 <code>.env</code> 后需<strong>重启</strong> <code>uvicorn</code>；请在<strong>项目根目录</strong>启动服务否则读不到 <code>.env</code>。打分在后台执行，几秒后用 <code>GET /runs/&#123;id&#125;/results</code> 或刷新下方输出查看 <code>scores</code>。</p>
     <pre id="outExec"></pre>
   </section>
 
@@ -83,64 +86,89 @@
   </section>
 
   <script>
-    const api = (path, opt = {}) => fetch(path, { headers: { 'Content-Type': 'application/json' }, ...opt }).then(async r => {
+    const api = async (path, opt = {}) => {
+      const r = await fetch(path, { headers: { 'Content-Type': 'application/json' }, ...opt });
       const t = await r.text();
-      try { return JSON.parse(t); } catch { return t; }
-    });
+      let body;
+      try { body = JSON.parse(t); } catch { body = t; }
+      if (!r.ok) {
+        const msg = typeof body === 'object' && body !== null && body.detail ? JSON.stringify(body.detail) : t;
+        throw new Error(msg || `HTTP ${r.status}`);
+      }
+      return body;
+    };
 
     document.getElementById('btnCreateDs').onclick = async () => {
-      const name = document.getElementById('dsName').value.trim();
-      const description = document.getElementById('dsDesc').value.trim();
-      const res = await api('/datasets', { method: 'POST', body: JSON.stringify({ name, description }) });
-      document.getElementById('outDs').textContent = JSON.stringify(res, null, 2);
-      if (res.id) { document.getElementById('casesDsId').value = res.id; document.getElementById('runDsId').value = res.id; }
+      try {
+        const name = document.getElementById('dsName').value.trim();
+        const description = document.getElementById('dsDesc').value.trim();
+        const res = await api('/datasets', { method: 'POST', body: JSON.stringify({ name, description }) });
+        document.getElementById('outDs').textContent = JSON.stringify(res, null, 2);
+        if (res.id) { document.getElementById('casesDsId').value = res.id; document.getElementById('runDsId').value = res.id; }
+      } catch (e) { alert(e.message || e); }
     };
 
     document.getElementById('btnUploadCases').onclick = async () => {
-      const dataset_id = Number(document.getElementById('casesDsId').value);
-      const cases = JSON.parse(document.getElementById('casesJson').value);
-      const res = await api(`/datasets/${dataset_id}/cases`, { method: 'POST', body: JSON.stringify({ cases }) });
-      document.getElementById('outCases').textContent = JSON.stringify(res, null, 2);
+      try {
+        const dataset_id = Number(document.getElementById('casesDsId').value);
+        if (!dataset_id) { alert('请填写 dataset_id'); return; }
+        const cases = JSON.parse(document.getElementById('casesJson').value);
+        const res = await api(`/datasets/${dataset_id}/cases`, { method: 'POST', body: JSON.stringify({ cases }) });
+        document.getElementById('outCases').textContent = JSON.stringify(res, null, 2);
+      } catch (e) { alert(e.message || e); }
     };
 
     document.getElementById('btnCreateRun').onclick = async () => {
-      const dataset_id = Number(document.getElementById('runDsId').value);
-      const name = document.getElementById('runName').value.trim();
-      const target_url = document.getElementById('runUrl').value.trim();
-      const response_json_path = document.getElementById('runPath').value.trim();
-      let body_template;
-      try { body_template = JSON.parse(document.getElementById('runBody').value); }
-      catch (e) { alert('body 模板不是合法 JSON'); return; }
-      const res = await api('/runs', {
-        method: 'POST',
-        body: JSON.stringify({
-          dataset_id, name, target_url, target_method: 'POST',
-          target_headers: {},
-          body_template,
-          response_json_path
-        })
-      });
-      document.getElementById('outRun').textContent = JSON.stringify(res, null, 2);
-      if (res.id) document.getElementById('execRunId').value = res.id;
+      try {
+        const dataset_id = Number(document.getElementById('runDsId').value);
+        if (!dataset_id) { alert('请填写 dataset_id'); return; }
+        const name = document.getElementById('runName').value.trim();
+        const target_url = document.getElementById('runUrl').value.trim();
+        if (!target_url) { alert('请填写目标 URL'); return; }
+        const response_json_path = document.getElementById('runPath').value.trim();
+        let body_template;
+        try { body_template = JSON.parse(document.getElementById('runBody').value); }
+        catch { alert('body 模板不是合法 JSON'); return; }
+        const res = await api('/runs', {
+          method: 'POST',
+          body: JSON.stringify({
+            dataset_id, name, target_url, target_method: 'POST',
+            target_headers: {},
+            body_template,
+            response_json_path
+          })
+        });
+        document.getElementById('outRun').textContent = JSON.stringify(res, null, 2);
+        if (res.id) document.getElementById('execRunId').value = res.id;
+      } catch (e) { alert(e.message || e); }
     };
 
     document.getElementById('btnExec').onclick = async () => {
-      const run_id = Number(document.getElementById('execRunId').value);
-      const res = await api(`/runs/${run_id}/execute`, { method: 'POST' });
-      document.getElementById('outExec').textContent = JSON.stringify(res, null, 2) + '\n\n轮询 GET /runs/' + run_id + ' 查看 status';
+      try {
+        const run_id = Number(document.getElementById('execRunId').value);
+        if (!run_id) { alert('请填写 run_id（可先「创建 Run」自动生成）'); return; }
+        const res = await api(`/runs/${run_id}/execute`, { method: 'POST' });
+        document.getElementById('outExec').textContent = JSON.stringify(res, null, 2) + '\n\n轮询 GET /runs/' + run_id + ' 查看 status';
+      } catch (e) { alert(e.message || e); }
     };
 
     document.getElementById('btnScore').onclick = async () => {
-      const run_id = Number(document.getElementById('execRunId').value);
-      const res = await api(`/runs/${run_id}/score`, { method: 'POST' });
-      document.getElementById('outExec').textContent = JSON.stringify(res, null, 2);
+      try {
+        const run_id = Number(document.getElementById('execRunId').value);
+        if (!run_id) { alert('请填写 run_id'); return; }
+        const res = await api(`/runs/${run_id}/score`, { method: 'POST' });
+        document.getElementById('outExec').textContent = JSON.stringify(res, null, 2) + '\n\n打分在后台运行，约 5～30 秒后打开 /docs 调用 GET /runs/' + run_id + '/results 查看 scores；若 judge_* 仍为空，请看服务端终端报错并确认已重启 uvicorn 且 .env 在项目根目录。';
+      } catch (e) { alert(e.message || e); }
     };
 
     document.getElementById('btnCmp').onclick = async () => {
-      const run_a_id = Number(document.getElementById('cmpA').value);
-      const run_b_id = Number(document.getElementById('cmpB').value);
-      const res = await api(`/compare?run_a_id=${run_a_id}&run_b_id=${run_b_id}`);
-      document.getElementById('outCmp').textContent = JSON.stringify(res, null, 2);
+      try {
+        const run_a_id = Number(document.getElementById('cmpA').value);
+        const run_b_id = Number(document.getElementById('cmpB').value);
+        if (!run_a_id || !run_b_id) { alert('请填写两个 run_id'); return; }
+        const res = await api(`/compare?run_a_id=${run_a_id}&run_b_id=${run_b_id}`);
+        document.getElementById('outCmp').textContent = JSON.stringify(res, null, 2);
+      } catch (e) { alert(e.message || e); }
     };
   </script>
 </body>
