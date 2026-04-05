@@ -78,3 +78,12 @@ class CompareResult(BaseModel):
     a: CompareMetrics
     b: CompareMetrics
     delta: dict[str, float]
+
+
+class PlaygroundRunBody(BaseModel):
+    question: str = Field(min_length=1, max_length=8000)
+
+
+class PlaygroundCompareBody(BaseModel):
+    question_a: str = Field(min_length=1, max_length=8000)
+    question_b: str = Field(min_length=1, max_length=8000)

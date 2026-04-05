@@ -9,19 +9,16 @@ from app.config import get_settings
 from app.models import RunResult, TestCase
 
 
-def _rule_scores(case: TestCase, answer: str) -> dict[str, float]:
+def compute_rule_scores(reference_answer: str, must_contain: list[str], answer: str) -> dict[str, float]:
+    """规则分：关键词命中 + 与参考答案词重叠（供批量评测与简易台共用）。"""
     out: dict[str, float] = {}
-    try:
-        must = json.loads(case.must_contain)
-    except json.JSONDecodeError:
-        must = []
-    if must:
-        hits = sum(1 for m in must if m and m in answer)
-        out["rule_must_contain"] = hits / max(len(must), 1)
+    if must_contain:
+        hits = sum(1 for m in must_contain if m and m in answer)
+        out["rule_must_contain"] = hits / max(len(must_contain), 1)
     else:
         out["rule_must_contain"] = 1.0
 
-    ref = (case.reference_answer or "").strip()
+    ref = (reference_answer or "").strip()
     if ref:
         ref_tokens = set(re.findall(r"\w+", ref.lower()))
         ans_tokens = set(re.findall(r"\w+", answer.lower()))
@@ -29,11 +26,23 @@ def _rule_scores(case: TestCase, answer: str) -> dict[str, float]:
             overlap = len(ref_tokens & ans_tokens) / len(ref_tokens)
             out["rule_ref_overlap"] = overlap
         else:
-            out["rule_ref_overlap"] = 1.0
+            ref_chars = {c for c in ref if c.strip()}
+            ans_chars = set(answer)
+            out["rule_ref_overlap"] = len(ref_chars & ans_chars) / len(ref_chars) if ref_chars else 1.0
     else:
         out["rule_ref_overlap"] = 1.0
 
     return out
+
+
+def _rule_scores(case: TestCase, answer: str) -> dict[str, float]:
+    try:
+        must = json.loads(case.must_contain or "[]")
+    except json.JSONDecodeError:
+        must = []
+    if not isinstance(must, list):
+        must = []
+    return compute_rule_scores(case.reference_answer or "", must, answer)
 
 
 JUDGE_SYSTEM = """You are an evaluator for RAG / assistant answers. Score the assistant answer given the user question.
@@ -48,10 +57,10 @@ async def _llm_judge(
     question: str,
     reference: str | None,
     answer: str,
-) -> tuple[dict[str, Any], str]:
+) -> tuple[dict[str, Any], str, dict[str, Any]]:
     settings = get_settings()
     if not settings.judge_api_key.strip():
-        return {}, ""
+        return {}, "", {}
 
     user = json.dumps(
         {
@@ -83,15 +92,17 @@ async def _llm_judge(
         )
         r.raise_for_status()
         data = r.json()
-        text = data["choices"][0]["message"]["content"]
+        text = str(data["choices"][0]["message"].get("content") or "")
+        usage_raw = data.get("usage")
+        usage: dict[str, Any] = usage_raw if isinstance(usage_raw, dict) else {}
         m = re.search(r"\{[\s\S]*\}", text)
         if not m:
-            return {}, text
+            return {}, text, usage
         try:
             parsed = json.loads(m.group())
-            return parsed, text
+            return parsed, text, usage
         except json.JSONDecodeError:
-            return {}, text
+            return {}, text, usage
 
 
 def _merge_scores(rule: dict[str, float], judge: dict[str, Any]) -> dict[str, float]:
@@ -116,7 +127,7 @@ async def score_run_async(session: Session, run_id: int) -> None:
         judge_parsed: dict[str, Any] = {}
         judge_raw = ""
         if use_judge and not rr.error_message:
-            judge_parsed, judge_raw = await _llm_judge(
+            judge_parsed, judge_raw, _ = await _llm_judge(
                 case.question,
                 case.reference_answer,
                 answer,

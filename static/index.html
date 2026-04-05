@@ -3,172 +3,403 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>RAG Eval Platform</title>
+  <title>简易评测台 · 智谱 + 本地 Ollama</title>
   <style>
-    :root { font-family: system-ui, sans-serif; color: #1a1a1a; background: #f6f7fb; }
-    body { margin: 0; padding: 1.5rem; max-width: 960px; margin-inline: auto; }
-    h1 { font-size: 1.35rem; }
-    section { background: #fff; border-radius: 10px; padding: 1rem 1.25rem; margin-bottom: 1rem; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
-    label { display: block; font-size: 0.85rem; margin-top: 0.5rem; color: #444; }
-    input, textarea, button, select { width: 100%; box-sizing: border-box; margin-top: 0.25rem; padding: 0.45rem 0.5rem; border: 1px solid #ccc; border-radius: 6px; }
-    textarea { min-height: 120px; font-family: ui-monospace, monospace; font-size: 0.85rem; }
-    button { cursor: pointer; background: #2563eb; color: #fff; border: none; font-weight: 600; margin-top: 0.75rem; width: auto; padding: 0.5rem 1rem; position: relative; z-index: 2; }
-    button.secondary { background: #64748b; }
-    .btn-row { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; margin-top: 0.5rem; position: relative; z-index: 2; }
-    pre { background: #0f172a; color: #e2e8f0; padding: 0.75rem; border-radius: 8px; overflow: auto; font-size: 0.8rem; max-height: 320px; }
-    .row { display: grid; gap: 0.75rem; grid-template-columns: 1fr 1fr; }
-    @media (max-width: 720px) { .row { grid-template-columns: 1fr; } }
-    .hint { font-size: 0.8rem; color: #64748b; margin-top: 0.25rem; }
+    :root {
+      --bg: #0f1419;
+      --card: #1a2332;
+      --border: #2d3a4d;
+      --text: #e7eef8;
+      --muted: #8b9cb3;
+      --accent: #3b82f6;
+      --good: #34d399;
+      --warn: #fbbf24;
+      font-family: "Segoe UI", system-ui, sans-serif;
+      color: var(--text);
+      background: var(--bg);
+      line-height: 1.5;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; padding: 1.25rem; max-width: 720px; margin-inline: auto; }
+    header { margin-bottom: 1.5rem; }
+    h1 { font-size: 1.35rem; font-weight: 650; margin: 0 0 0.35rem; letter-spacing: -0.02em; }
+    .sub { color: var(--muted); font-size: 0.875rem; }
+    .sub a { color: var(--accent); }
+    section {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 1.1rem 1.2rem;
+      margin-bottom: 1rem;
+    }
+    h2 { font-size: 0.95rem; margin: 0 0 0.65rem; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; }
+    textarea {
+      width: 100%;
+      min-height: 100px;
+      padding: 0.65rem 0.75rem;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: #0d1218;
+      color: var(--text);
+      font-size: 0.95rem;
+      resize: vertical;
+    }
+    textarea:focus { outline: 2px solid var(--accent); outline-offset: 1px; border-color: transparent; }
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      margin-top: 0.65rem;
+      padding: 0.55rem 1.1rem;
+      border: none;
+      border-radius: 8px;
+      font-weight: 600;
+      font-size: 0.9rem;
+      cursor: pointer;
+      background: var(--accent);
+      color: #fff;
+    }
+    .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .btn-sec { background: #475569; margin-left: 0.5rem; }
+    .pill {
+      display: inline-block;
+      padding: 0.15rem 0.5rem;
+      border-radius: 999px;
+      font-size: 0.75rem;
+      background: #0d1218;
+      border: 1px solid var(--border);
+      color: var(--muted);
+      margin: 0.2rem 0.25rem 0 0;
+    }
+    .pill.hit { border-color: var(--good); color: var(--good); }
+    .pill.miss { border-color: #f87171; color: #f87171; text-decoration: line-through; opacity: 0.9; }
+    .token-panel { margin-top: 0.35rem; }
+    .token-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 0.75rem;
+    }
+    @media (max-width: 600px) {
+      .token-grid { grid-template-columns: 1fr; }
+    }
+    .token-card {
+      background: #0d1218;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      overflow: hidden;
+    }
+    .token-card--zhipu { border-top: 3px solid #818cf8; }
+    .token-card--ollama { border-top: 3px solid #34d399; }
+    .token-card__head {
+      padding: 0.5rem 0.75rem;
+      font-size: 0.82rem;
+      font-weight: 650;
+      color: var(--text);
+      background: rgba(255,255,255,0.04);
+    }
+    .token-stage {
+      padding: 0.5rem 0.75rem;
+      border-top: 1px solid var(--border);
+    }
+    .token-stage__name {
+      font-size: 0.72rem;
+      color: var(--muted);
+      margin-bottom: 0.4rem;
+      letter-spacing: 0.02em;
+    }
+    .token-metrics {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.4rem;
+    }
+    .token-metric {
+      font-size: 0.78rem;
+      font-variant-numeric: tabular-nums;
+      padding: 0.3rem 0.55rem;
+      border-radius: 8px;
+      background: #0f1419;
+      border: 1px solid var(--border);
+      color: var(--text);
+    }
+    .token-metric .k {
+      display: block;
+      font-size: 0.65rem;
+      color: var(--muted);
+      font-weight: 500;
+      margin-bottom: 0.08rem;
+    }
+    .token-metric .v { font-weight: 600; }
+    .token-card__foot {
+      padding: 0.5rem 0.75rem;
+      font-size: 0.76rem;
+      color: var(--muted);
+      border-top: 1px solid var(--border);
+      background: rgba(0,0,0,0.2);
+    }
+    .token-card__foot strong {
+      color: #93c5fd;
+      font-variant-numeric: tabular-nums;
+      font-weight: 700;
+    }
+    .token-card--ollama .token-card__foot strong { color: #6ee7b7; }
+    .token-compare-note {
+      margin-top: 0.65rem;
+      padding: 0.55rem 0.75rem;
+      border-radius: 8px;
+      background: rgba(59,130,246,0.1);
+      border: 1px solid rgba(99,102,241,0.35);
+      font-size: 0.8rem;
+      color: var(--text);
+      line-height: 1.45;
+    }
+    .scores { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.5rem; }
+    .score-item {
+      background: #0d1218;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 0.35rem 0.65rem;
+      font-size: 0.85rem;
+      font-variant-numeric: tabular-nums;
+    }
+    .score-item strong { color: var(--good); }
+    .score-item.delta-pos strong { color: var(--good); }
+    .score-item.delta-neg strong { color: #f87171; }
+    .block { margin-top: 0.65rem; }
+    .label { font-size: 0.75rem; color: var(--muted); margin-bottom: 0.25rem; }
+    .body { font-size: 0.9rem; white-space: pre-wrap; word-break: break-word; }
+    .delta-pos { color: var(--good); }
+    .delta-neg { color: #f87171; }
+    .err { color: #f87171; font-size: 0.875rem; margin-top: 0.5rem; }
+    .spinner { width: 14px; height: 14px; border: 2px solid #fff3; border-top-color: #fff; border-radius: 50%; animation: s 0.7s linear infinite; }
+    @keyframes s { to { transform: rotate(360deg); } }
   </style>
 </head>
 <body>
-  <h1>RAG / Agent 离线评测台</h1>
-  <p class="hint">调用任意 HTTP 接口批量跑题、打分、对比两次实验。API 文档：<a href="/docs">/docs</a></p>
+  <header>
+    <h1>简易评测台</h1>
+    <p class="sub">
+      智谱生成参考与关键词；<strong>绿=命中 / 红=未命中</strong> 可看哪些词拉低命中率；下方展示<strong>智谱 token</strong>与<strong>Ollama 评估计数</strong>。
+      <a href="/docs">API 文档</a> · <a href="/classic.html">经典批量评测</a>
+    </p>
+  </header>
 
   <section>
-    <h2>1. 新建数据集</h2>
-    <label>名称 <input id="dsName" placeholder="my_dataset" /></label>
-    <label>描述 <input id="dsDesc" placeholder="optional" /></label>
-    <button type="button" id="btnCreateDs">创建</button>
-    <p class="hint">创建后记住 <strong>dataset_id</strong>（见下方输出）。</p>
-    <pre id="outDs"></pre>
-  </section>
-
-  <section>
-    <h2>2. 导入评测用例（JSON 数组）</h2>
-    <label>dataset_id <input id="casesDsId" type="number" /></label>
-    <label>用例 JSON（<code>question</code> 必填；可选 <code>reference_answer</code>, <code>must_contain</code>, <code>tags</code>）</label>
-    <textarea id="casesJson">[
-  {"question": "什么是 RAG？", "reference_answer": "检索增强生成", "must_contain": ["检索"]},
-  {"question": "文档里没有的问题示例", "reference_answer": "", "must_contain": []}
-]</textarea>
-    <button type="button" id="btnUploadCases">上传用例</button>
-    <pre id="outCases"></pre>
-  </section>
-
-  <section>
-    <h2>3. 创建实验 Run（指向你的 Agent HTTP）</h2>
-    <div class="row">
-      <label>dataset_id <input id="runDsId" type="number" /></label>
-      <label>run 名称 <input id="runName" placeholder="baseline_v1" /></label>
+    <h2>单题评测</h2>
+    <textarea id="q1" placeholder="输入一个问题，例如：什么是 RAG？"></textarea>
+    <button type="button" class="btn" id="btn1"><span id="spin1" class="spinner" style="display:none"></span> 一键评测</button>
+    <div class="err" id="err1"></div>
+    <div id="out1" style="display:none" class="block">
+      <div class="label">智谱 · 参考要点</div>
+      <div class="body" id="ref1"></div>
+      <div class="label" style="margin-top:0.75rem">关键词命中（影响 rule_must_contain）</div>
+      <div id="kw1"></div>
+      <div class="label" style="margin-top:0.5rem">未命中词（可改写问题或提示模型覆盖这些点）</div>
+      <div class="body" id="miss1" style="font-size:0.85rem;color:#f87171"></div>
+      <div class="label" style="margin-top:0.75rem">本地模型回答（<span id="lm1"></span>）</div>
+      <div class="body" id="loc1"></div>
+      <div class="label" style="margin-top:0.75rem">综合分数</div>
+      <div class="scores" id="sc1"></div>
+      <div class="label" style="margin-top:0.75rem">用量统计</div>
+      <div class="token-panel" id="tok1"></div>
     </div>
-    <label>目标 URL（POST） <input id="runUrl" placeholder="http://host.docker.internal:8080/ask" /></label>
-    <label>响应中取答案的 JSON 路径（可选，如 <code>answer</code> 或 <code>data.text</code>，留空则用整段 JSON 字符串）</label>
-    <input id="runPath" placeholder="" />
-    <label>请求体模板（字符串里用 <code>{question}</code> 占位）</label>
-    <textarea id="runBody">{"question": "{question}"}</textarea>
-    <button type="button" id="btnCreateRun">创建 Run</button>
-    <pre id="outRun"></pre>
   </section>
 
   <section>
-    <h2>4. 执行与打分</h2>
-    <div class="row">
-      <label>run_id <input id="execRunId" type="number" /></label>
-      <label>&nbsp;</label>
+    <h2>两题对比</h2>
+    <div class="label">问题 A</div>
+    <textarea id="qa" placeholder="第一个问题"></textarea>
+    <div class="label" style="margin-top:0.5rem">问题 B</div>
+    <textarea id="qb" placeholder="第二个问题"></textarea>
+    <button type="button" class="btn" id="btn2"><span id="spin2" class="spinner" style="display:none"></span> 对比两题分数差距</button>
+    <div class="err" id="err2"></div>
+    <div id="out2" style="display:none" class="block">
+      <div class="label">分数差 Δ（B − A）</div>
+      <div class="scores" id="delta2"></div>
+      <div class="label" style="margin-top:1rem">A 摘要</div>
+      <div id="sumA" class="body" style="font-size:0.85rem;color:var(--muted)"></div>
+      <div class="label" style="margin-top:0.5rem">B 摘要</div>
+      <div id="sumB" class="body" style="font-size:0.85rem;color:var(--muted)"></div>
+      <div id="tokNote2" class="token-compare-note" style="display:none"></div>
     </div>
-    <div class="btn-row">
-      <button type="button" id="btnExec">执行批量请求</button>
-      <button type="button" class="secondary" id="btnScore">LLM+规则打分</button>
-    </div>
-    <p class="hint">打分需在服务端配置 <code>JUDGE_API_KEY</code>（兼容 OpenAI Chat Completions）。仅规则分可不配 Key。修改 <code>.env</code> 后需<strong>重启</strong> <code>uvicorn</code>；请在<strong>项目根目录</strong>启动服务否则读不到 <code>.env</code>。打分在后台执行，几秒后用 <code>GET /runs/&#123;id&#125;/results</code> 或刷新下方输出查看 <code>scores</code>。</p>
-    <pre id="outExec"></pre>
   </section>
 
-  <section>
-    <h2>5. 对比两次 Run</h2>
-    <div class="row">
-      <label>run_a_id <input id="cmpA" type="number" /></label>
-      <label>run_b_id <input id="cmpB" type="number" /></label>
-    </div>
-    <button type="button" id="btnCmp">对比指标</button>
-    <pre id="outCmp"></pre>
-  </section>
+  <p class="sub" style="margin-top:1.5rem">
+    配置 <code style="background:#1a2332;padding:0.1rem 0.35rem;border-radius:4px">JUDGE_*</code>、<code style="background:#1a2332;padding:0.1rem 0.35rem;border-radius:4px">OLLAMA_*</code>。可在 <code style="background:#1a2332;padding:0.1rem 0.35rem;border-radius:4px">OLLAMA_NUM_PREDICT=384</code> 限制生成长度以压低本地输出计数（需重启服务）。
+  </p>
 
   <script>
-    const api = async (path, opt = {}) => {
-      const r = await fetch(path, { headers: { 'Content-Type': 'application/json' }, ...opt });
+    async function api(path, body) {
+      const r = await fetch(path, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
       const t = await r.text();
-      let body;
-      try { body = JSON.parse(t); } catch { body = t; }
+      let data;
+      try { data = JSON.parse(t); } catch { data = { detail: t }; }
       if (!r.ok) {
-        const msg = typeof body === 'object' && body !== null && body.detail ? JSON.stringify(body.detail) : t;
-        throw new Error(msg || `HTTP ${r.status}`);
+        const d = data.detail;
+        throw new Error(typeof d === 'string' ? d : JSON.stringify(d));
       }
-      return body;
+      return data;
+    }
+
+    function renderScores(el, scores) {
+      el.innerHTML = '';
+      Object.entries(scores).sort(([a],[b]) => a.localeCompare(b)).forEach(([k, v]) => {
+        const div = document.createElement('div');
+        div.className = 'score-item';
+        div.innerHTML = `<strong>${Number(v).toFixed(3)}</strong> · ${k}`;
+        el.appendChild(div);
+      });
+    }
+
+    function renderKeywordHits(el, hits) {
+      el.innerHTML = '';
+      (hits || []).forEach((h) => {
+        const s = document.createElement('span');
+        s.className = 'pill ' + (h.hit ? 'hit' : 'miss');
+        s.textContent = (h.hit ? '✓ ' : '✗ ') + h.term;
+        el.appendChild(s);
+      });
+    }
+
+    function num(x) {
+      return x == null || x === '' ? '—' : String(x);
+    }
+
+    function metricCell(label, value) {
+      return `<div class="token-metric"><span class="k">${label}</span><span class="v">${num(value)}</span></div>`;
+    }
+
+    function renderTokenUsage(el, tu, ollamaModelName) {
+      if (!tu) {
+        el.innerHTML = '<p class="body" style="color:var(--muted);margin:0">暂无用量数据</p>';
+        return;
+      }
+      const z = tu.zhipu || {};
+      const zr = z.reference_generation || {};
+      const zj = z.judge || {};
+      const o = tu.ollama_local || {};
+      const zSum = z.total_tokens_sum;
+      const oSum = tu.ollama_local_sum_eval;
+
+      const zhipuHtml = `
+        <div class="token-card token-card--zhipu">
+          <div class="token-card__head">智谱 GLM（云端 API）</div>
+          <div class="token-stage">
+            <div class="token-stage__name">① 生成参考要点与关键词</div>
+            <div class="token-metrics">
+              ${metricCell('输入 Tokens', zr.prompt_tokens)}
+              ${metricCell('输出 Tokens', zr.completion_tokens)}
+              ${metricCell('本段合计', zr.total_tokens)}
+            </div>
+          </div>
+          <div class="token-stage">
+            <div class="token-stage__name">② 评委打分</div>
+            <div class="token-metrics">
+              ${metricCell('输入 Tokens', zj.prompt_tokens)}
+              ${metricCell('输出 Tokens', zj.completion_tokens)}
+              ${metricCell('本段合计', zj.total_tokens)}
+            </div>
+          </div>
+          <div class="token-card__foot">
+            智谱两次调用累计约 <strong>${zSum != null ? zSum : '—'}</strong> Tokens
+          </div>
+        </div>`;
+
+      const ollamaSub = ollamaModelName ? ` · ${ollamaModelName}` : '';
+      const ollamaHtml = `
+        <div class="token-card token-card--ollama">
+          <div class="token-card__head">Ollama（本机${ollamaSub}）</div>
+          <div class="token-stage">
+            <div class="token-stage__name">单次对话评估计数（与 Token 规模近似）</div>
+            <div class="token-metrics">
+              ${metricCell('输入侧', o.prompt_eval_count)}
+              ${metricCell('生成侧', o.eval_count)}
+            </div>
+          </div>
+          <div class="token-card__foot">
+            本机两侧相加（参考）<strong>${oSum != null ? oSum : '—'}</strong>
+          </div>
+        </div>`;
+
+      el.innerHTML = `<div class="token-grid">${zhipuHtml}${ollamaHtml}</div>`;
+    }
+
+    document.getElementById('btn1').onclick = async () => {
+      const q = document.getElementById('q1').value.trim();
+      const err = document.getElementById('err1');
+      const btn = document.getElementById('btn1');
+      const spin = document.getElementById('spin1');
+      err.textContent = '';
+      if (!q) { err.textContent = '请输入问题'; return; }
+      btn.disabled = true;
+      spin.style.display = 'inline-block';
+      document.getElementById('out1').style.display = 'none';
+      try {
+        const res = await api('/api/playground/run', { question: q });
+        document.getElementById('ref1').textContent = res.reference_answer || '（空）';
+        renderKeywordHits(document.getElementById('kw1'), res.keyword_hits || []);
+        const miss = (res.keyword_hit_summary && res.keyword_hit_summary.missed_terms) || [];
+        document.getElementById('miss1').textContent = miss.length ? miss.join('、') : '（全部命中）';
+        document.getElementById('lm1').textContent = res.local_model || '';
+        document.getElementById('loc1').textContent = res.local_answer || '';
+        renderScores(document.getElementById('sc1'), res.scores || {});
+        renderTokenUsage(document.getElementById('tok1'), res.token_usage, res.local_model);
+        document.getElementById('out1').style.display = 'block';
+      } catch (e) {
+        err.textContent = e.message || String(e);
+      } finally {
+        btn.disabled = false;
+        spin.style.display = 'none';
+      }
     };
 
-    document.getElementById('btnCreateDs').onclick = async () => {
+    document.getElementById('btn2').onclick = async () => {
+      const qa = document.getElementById('qa').value.trim();
+      const qb = document.getElementById('qb').value.trim();
+      const err = document.getElementById('err2');
+      const btn = document.getElementById('btn2');
+      const spin = document.getElementById('spin2');
+      err.textContent = '';
+      if (!qa || !qb) { err.textContent = '请填写两个问题'; return; }
+      btn.disabled = true;
+      spin.style.display = 'inline-block';
+      document.getElementById('out2').style.display = 'none';
       try {
-        const name = document.getElementById('dsName').value.trim();
-        const description = document.getElementById('dsDesc').value.trim();
-        const res = await api('/datasets', { method: 'POST', body: JSON.stringify({ name, description }) });
-        document.getElementById('outDs').textContent = JSON.stringify(res, null, 2);
-        if (res.id) { document.getElementById('casesDsId').value = res.id; document.getElementById('runDsId').value = res.id; }
-      } catch (e) { alert(e.message || e); }
-    };
-
-    document.getElementById('btnUploadCases').onclick = async () => {
-      try {
-        const dataset_id = Number(document.getElementById('casesDsId').value);
-        if (!dataset_id) { alert('请填写 dataset_id'); return; }
-        const cases = JSON.parse(document.getElementById('casesJson').value);
-        const res = await api(`/datasets/${dataset_id}/cases`, { method: 'POST', body: JSON.stringify({ cases }) });
-        document.getElementById('outCases').textContent = JSON.stringify(res, null, 2);
-      } catch (e) { alert(e.message || e); }
-    };
-
-    document.getElementById('btnCreateRun').onclick = async () => {
-      try {
-        const dataset_id = Number(document.getElementById('runDsId').value);
-        if (!dataset_id) { alert('请填写 dataset_id'); return; }
-        const name = document.getElementById('runName').value.trim();
-        const target_url = document.getElementById('runUrl').value.trim();
-        if (!target_url) { alert('请填写目标 URL'); return; }
-        const response_json_path = document.getElementById('runPath').value.trim();
-        let body_template;
-        try { body_template = JSON.parse(document.getElementById('runBody').value); }
-        catch { alert('body 模板不是合法 JSON'); return; }
-        const res = await api('/runs', {
-          method: 'POST',
-          body: JSON.stringify({
-            dataset_id, name, target_url, target_method: 'POST',
-            target_headers: {},
-            body_template,
-            response_json_path
-          })
+        const res = await api('/api/playground/compare', { question_a: qa, question_b: qb });
+        const del = document.getElementById('delta2');
+        del.innerHTML = '';
+        Object.entries(res.delta || {}).sort(([a],[b]) => a.localeCompare(b)).forEach(([k, v]) => {
+          const div = document.createElement('div');
+          div.className = 'score-item';
+          const n = Number(v);
+          div.classList.add(n >= 0 ? 'delta-pos' : 'delta-neg');
+          div.innerHTML = `<strong>${n >= 0 ? '+' : ''}${n.toFixed(3)}</strong> · ${k}`;
+          del.appendChild(div);
         });
-        document.getElementById('outRun').textContent = JSON.stringify(res, null, 2);
-        if (res.id) document.getElementById('execRunId').value = res.id;
-      } catch (e) { alert(e.message || e); }
-    };
-
-    document.getElementById('btnExec').onclick = async () => {
-      try {
-        const run_id = Number(document.getElementById('execRunId').value);
-        if (!run_id) { alert('请填写 run_id（可先「创建 Run」自动生成）'); return; }
-        const res = await api(`/runs/${run_id}/execute`, { method: 'POST' });
-        document.getElementById('outExec').textContent = JSON.stringify(res, null, 2) + '\n\n轮询 GET /runs/' + run_id + ' 查看 status';
-      } catch (e) { alert(e.message || e); }
-    };
-
-    document.getElementById('btnScore').onclick = async () => {
-      try {
-        const run_id = Number(document.getElementById('execRunId').value);
-        if (!run_id) { alert('请填写 run_id'); return; }
-        const res = await api(`/runs/${run_id}/score`, { method: 'POST' });
-        document.getElementById('outExec').textContent = JSON.stringify(res, null, 2) + '\n\n打分在后台运行，约 5～30 秒后打开 /docs 调用 GET /runs/' + run_id + '/results 查看 scores；若 judge_* 仍为空，请看服务端终端报错并确认已重启 uvicorn 且 .env 在项目根目录。';
-      } catch (e) { alert(e.message || e); }
-    };
-
-    document.getElementById('btnCmp').onclick = async () => {
-      try {
-        const run_a_id = Number(document.getElementById('cmpA').value);
-        const run_b_id = Number(document.getElementById('cmpB').value);
-        if (!run_a_id || !run_b_id) { alert('请填写两个 run_id'); return; }
-        const res = await api(`/compare?run_a_id=${run_a_id}&run_b_id=${run_b_id}`);
-        document.getElementById('outCmp').textContent = JSON.stringify(res, null, 2);
-      } catch (e) { alert(e.message || e); }
+        const missA = (res.a.keyword_hit_summary && res.a.keyword_hit_summary.missed_terms) || [];
+        const missB = (res.b.keyword_hit_summary && res.b.keyword_hit_summary.missed_terms) || [];
+        document.getElementById('sumA').textContent =
+          `关键词命中率 ${(res.a.scores.rule_must_contain ?? 0).toFixed(2)} · 参考重叠 ${(res.a.scores.rule_ref_overlap ?? 0).toFixed(2)} · factual ${res.a.scores.judge_factual ?? '—'} · Ollama计数≈${res.a.token_usage && res.a.token_usage.ollama_local_sum_eval != null ? res.a.token_usage.ollama_local_sum_eval : '—'} · 未命中: ${missA.length ? missA.join('、') : '无'}`;
+        document.getElementById('sumB').textContent =
+          `关键词命中率 ${(res.b.scores.rule_must_contain ?? 0).toFixed(2)} · 参考重叠 ${(res.b.scores.rule_ref_overlap ?? 0).toFixed(2)} · factual ${res.b.scores.judge_factual ?? '—'} · Ollama计数≈${res.b.token_usage && res.b.token_usage.ollama_local_sum_eval != null ? res.b.token_usage.ollama_local_sum_eval : '—'} · 未命中: ${missB.length ? missB.join('、') : '无'}`;
+        const tn = document.getElementById('tokNote2');
+        if (res.token_delta_note) {
+          tn.style.display = 'block';
+          tn.textContent = res.token_delta_note;
+        } else {
+          tn.style.display = 'none';
+          tn.textContent = '';
+        }
+        document.getElementById('out2').style.display = 'block';
+      } catch (e) {
+        err.textContent = e.message || String(e);
+      } finally {
+        btn.disabled = false;
+        spin.style.display = 'none';
+      }
     };
   </script>
 </body>

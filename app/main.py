@@ -1,13 +1,13 @@
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.database import init_db
-from app.routers import compare, datasets, runs
+from app.routers import compare, datasets, playground, runs
 
 _ROOT = Path(__file__).resolve().parent.parent
 (_ROOT / "data").mkdir(parents=True, exist_ok=True)
@@ -38,6 +38,7 @@ app.add_middleware(
 app.include_router(datasets.router)
 app.include_router(runs.router)
 app.include_router(compare.router)
+app.include_router(playground.router)
 
 static_dir = _ROOT / "static"
 if static_dir.is_dir():
@@ -47,6 +48,14 @@ if static_dir.is_dir():
 @app.get("/health")
 def health():
     return {"status": "ok"}
+
+
+@app.get("/classic.html")
+def classic_page():
+    p = static_dir / "classic.html"
+    if not p.is_file():
+        raise HTTPException(status_code=404, detail="classic.html not found")
+    return FileResponse(p)
 
 
 @app.get("/")
