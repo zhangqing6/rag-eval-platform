@@ -9,6 +9,7 @@
 - **执行**：异步并发调用 Agent，记录耗时与原始响应
 - **打分**：规则分（关键词、与参考答案词重叠）+ 可选 LLM 评委（需配置 OpenAI 兼容 API）
 - **对比**：`/compare?run_a_id=&run_b_id=` 查看平均分与误差率差异
+- **简易评测台**（首页 `/`）：智谱生成参考+关键词 → Ollama 作答 → **逐词命中**（绿/红）与 **未命中词列表** → 规则分+评委；返回 **智谱 token** 与 **Ollama prompt_eval_count/eval_count**；可选 `OLLAMA_NUM_PREDICT` 压缩本地生成长度；支持两题对比（含本地计数差说明）
 
 ## 本地运行
 
@@ -21,8 +22,27 @@ copy .env.example .env   # 按需填写 JUDGE_API_KEY
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
+- **简易评测首页**：<http://127.0.0.1:8000/>（智谱 + Ollama 一键对比）
+- 经典批量控制台：<http://127.0.0.1:8000/classic.html> 或 <http://127.0.0.1:8000/ui/>
 - API 文档：<http://127.0.0.1:8000/docs>
-- 简易 Web 控制台：<http://127.0.0.1:8000/> 或 <http://127.0.0.1:8000/ui/>
+
+### Windows 一键开发启动（虚拟环境 + 双服务 + 打开 Swagger）
+
+在 `rag-eval-platform` 目录下：
+
+- **双击** `start-dev.bat`，或命令行执行 `start-dev.bat`  
+- 若无 `.venv` 会自动创建并 `pip install -r requirements.txt`  
+- 会打开两个控制台窗口：**评测平台 :8000**、**Ollama 桥 :9999**  
+- 约 4 秒后自动打开浏览器：<http://127.0.0.1:8000/>（简易评测前端）  
+
+PowerShell（若 `.bat` 被策略拦截）：
+
+```powershell
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
+.\start-dev.ps1
+```
+
+使用前请本机已运行 **Ollama**（桥接服务会连 `11434`）。关闭两个 titled 窗口即停止对应服务。
 
 ## Docker 一键启动
 
