@@ -1,4 +1,4 @@
-# RAG / Agent 离线评测与回归平台
+# RAG / Agent 评测与回归平台
 
 面向 **任意 HTTP 接口**（ LangGraph Agent、RAG 服务等）的批量跑批、规则与 LLM-as-judge 打分、两次实验指标对比，并支持 **CSV 导出**。
 
