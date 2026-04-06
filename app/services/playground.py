@@ -13,6 +13,13 @@ REF_SYSTEM = """你是专业助教。根据用户问题，仅输出一个 JSON �
 {"reference_answer":"用1-4句中文给出可作为参考的要点答案","keywords":["关键词或短语1","关键词2",...]}
 keywords 请列出 3-10 个**最短必要**的中文短语：本地模型答案里若覆盖这些词，通常表示答到要点（便于逐词检查命中率）。避免冗长句子。"""
 
+REF_ONLY_SYSTEM = """你是专业助教。根据用户问题，只输出一个 JSON 对象，不要 markdown，不要其它文字。
+格式严格为：{"reference_answer":"用1-4句中文给出可作为参考的要点答案"}"""
+
+KW_ONLY_SYSTEM = """你是专业助教。根据用户给出的「问题」与「参考要点」，只输出一个 JSON 对象，不要 markdown，不要其它文字。
+格式严格为：{"keywords":["短语1","短语2",...]}
+keywords 为 3-10 个最短必要的中文短语，用于判断其它模型答案是否覆盖要点。"""
+
 
 def _parse_json_object(text: str) -> dict[str, Any]:
     m = re.search(r"\{[\s\S]*\}", text)
@@ -22,6 +29,17 @@ def _parse_json_object(text: str) -> dict[str, Any]:
         return json.loads(m.group())
     except json.JSONDecodeError:
         return {}
+
+
+def _normalize_kw_input(raw: list[str] | None) -> list[str]:
+    if not raw:
+        return []
+    out: list[str] = []
+    for x in raw:
+        t = str(x).strip()
+        if t and t not in out:
+            out.append(t)
+    return out[:40]
 
 
 def compute_keyword_hits(keywords: list[str], answer: str) -> list[dict[str, Any]]:
@@ -71,7 +89,7 @@ async def _openai_compatible_chat(messages: list[dict[str, str]], temperature: f
             detail=f"智谱/模型接口错误 {r.status_code}: {r.text[:400]}",
         )
     data = r.json()
-    content = str(data["choices"][0]["message"]["content"] or "")
+    content = str(data["choices"][0]["message"].get("content") or "")
     usage_raw = data.get("usage")
     usage = usage_raw if isinstance(usage_raw, dict) else {}
     return content, _normalize_usage_tokens(usage)
@@ -92,6 +110,59 @@ async def fetch_reference_and_keywords(question: str) -> tuple[str, list[str], d
         kws = []
     kws = [str(x).strip() for x in kws if str(x).strip()]
     return ref, kws, usage
+
+
+async def fetch_reference_only(question: str) -> tuple[str, dict[str, Any]]:
+    messages = [
+        {"role": "system", "content": REF_ONLY_SYSTEM},
+        {"role": "user", "content": f"问题：{question}"},
+    ]
+    text, usage = await _openai_compatible_chat(messages)
+    data = _parse_json_object(text)
+    ref = str(data.get("reference_answer") or "").strip()
+    return ref, usage
+
+
+async def fetch_keywords_only(question: str, reference: str) -> tuple[list[str], dict[str, Any]]:
+    messages = [
+        {"role": "system", "content": KW_ONLY_SYSTEM},
+        {"role": "user", "content": f"问题：{question}\n参考要点：{reference}"},
+    ]
+    text, usage = await _openai_compatible_chat(messages)
+    data = _parse_json_object(text)
+    kws = data.get("keywords") or []
+    if isinstance(kws, str):
+        kws = [kws]
+    if not isinstance(kws, list):
+        kws = []
+    kws = [str(x).strip() for x in kws if str(x).strip()]
+    return kws, usage
+
+
+async def resolve_reference_keywords(
+    question: str,
+    reference_answer: str | None,
+    keywords: list[str] | None,
+) -> tuple[str, list[str], dict[str, dict[str, Any]]]:
+    """返回 ref, kws, {"reference_generation": usage?, "keyword_extraction": usage?}。"""
+    ref_in = (reference_answer or "").strip()
+    kw_in = _normalize_kw_input(keywords)
+    zr: dict[str, Any] = {}
+    zk: dict[str, Any] = {}
+
+    if ref_in and kw_in:
+        return ref_in, kw_in, {"reference_generation": {}, "keyword_extraction": {}}
+
+    if ref_in and not kw_in:
+        kws, zk_u = await fetch_keywords_only(question, ref_in)
+        return ref_in, kws, {"reference_generation": zr, "keyword_extraction": zk_u}
+
+    if not ref_in and kw_in:
+        ref, zr_u = await fetch_reference_only(question)
+        return ref, kw_in, {"reference_generation": zr_u, "keyword_extraction": zk}
+
+    ref, kws, zr_u = await fetch_reference_and_keywords(question)
+    return ref, kws, {"reference_generation": zr_u, "keyword_extraction": zk}
 
 
 async def ollama_answer(question: str) -> tuple[str, dict[str, Any]]:
@@ -129,8 +200,19 @@ async def ollama_answer(question: str) -> tuple[str, dict[str, Any]]:
     return text, usage
 
 
-async def run_playground_pipeline(question: str) -> dict[str, Any]:
-    ref, kws, zhipu_ref_usage = await fetch_reference_and_keywords(question)
+async def run_playground_pipeline(
+    question: str,
+    *,
+    reference_answer: str | None = None,
+    keywords: list[str] | None = None,
+) -> dict[str, Any]:
+    ref_manual = bool((reference_answer or "").strip())
+    kw_manual = bool(_normalize_kw_input(keywords))
+
+    ref, kws, zhipu_meta = await resolve_reference_keywords(question, reference_answer, keywords)
+    zhipu_ref_usage = zhipu_meta.get("reference_generation") or {}
+    zhipu_kw_usage = zhipu_meta.get("keyword_extraction") or {}
+
     local, ollama_usage = await ollama_answer(question)
     keyword_hits = compute_keyword_hits(kws, local)
     hit_n = sum(1 for x in keyword_hits if x.get("hit"))
@@ -139,14 +221,22 @@ async def run_playground_pipeline(question: str) -> dict[str, Any]:
     judge_parsed, judge_raw, judge_usage = await _llm_judge(question, ref or None, local)
     merged = _merge_scores(rule, judge_parsed)
 
-    z_total = (zhipu_ref_usage.get("total_tokens") or 0) + (judge_usage.get("total_tokens") or 0)
+    z_total = (
+        (zhipu_ref_usage.get("total_tokens") or 0)
+        + (zhipu_kw_usage.get("total_tokens") or 0)
+        + (judge_usage.get("total_tokens") or 0)
+    )
     o_prompt = ollama_usage.get("prompt_eval_count") or 0
     o_out = ollama_usage.get("eval_count") or 0
+
+    ref_src = "manual" if ref_manual else "zhipu"
+    kw_src = "manual" if kw_manual else "zhipu"
 
     return {
         "question": question,
         "reference_answer": ref,
         "keywords": kws,
+        "authority": {"reference": ref_src, "keywords": kw_src},
         "keyword_hits": keyword_hits,
         "keyword_hit_summary": {
             "hit": hit_n,
@@ -161,6 +251,7 @@ async def run_playground_pipeline(question: str) -> dict[str, Any]:
         "token_usage": {
             "zhipu": {
                 "reference_generation": zhipu_ref_usage,
+                "keyword_extraction": zhipu_kw_usage,
                 "judge": _normalize_usage_tokens(judge_usage),
                 "total_tokens_sum": z_total if z_total else None,
             },
@@ -170,10 +261,26 @@ async def run_playground_pipeline(question: str) -> dict[str, Any]:
     }
 
 
-async def run_playground_compare(question_a: str, question_b: str) -> dict[str, Any]:
+async def run_playground_compare(
+    question_a: str,
+    question_b: str,
+    *,
+    reference_answer_a: str | None = None,
+    keywords_a: list[str] | None = None,
+    reference_answer_b: str | None = None,
+    keywords_b: list[str] | None = None,
+) -> dict[str, Any]:
     a, b = await asyncio.gather(
-        run_playground_pipeline(question_a),
-        run_playground_pipeline(question_b),
+        run_playground_pipeline(
+            question_a,
+            reference_answer=reference_answer_a,
+            keywords=keywords_a,
+        ),
+        run_playground_pipeline(
+            question_b,
+            reference_answer=reference_answer_b,
+            keywords=keywords_b,
+        ),
     )
     keys = set(a["scores"]) | set(b["scores"])
     delta = {
@@ -196,6 +303,6 @@ async def run_playground_compare(question_a: str, question_b: str) -> dict[str, 
         "a": a,
         "b": b,
         "delta": delta,
-        "note": "delta = 问题B 的各指标分数 − 问题A（同一次智谱标准下分别评测）",
+        "note": "delta = 问题B 的各指标分数 − 问题A（同一套参考/关键词来源规则下分别评测）",
         "token_delta_note": token_delta_note,
     }

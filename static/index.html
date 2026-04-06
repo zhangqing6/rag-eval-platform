@@ -172,13 +172,41 @@
     .err { color: #f87171; font-size: 0.875rem; margin-top: 0.5rem; }
     .spinner { width: 14px; height: 14px; border: 2px solid #fff3; border-top-color: #fff; border-radius: 50%; animation: s 0.7s linear infinite; }
     @keyframes s { to { transform: rotate(360deg); } }
+    .opt-block {
+      margin-top: 0.65rem;
+      padding: 0.65rem 0.75rem;
+      background: #0d1218;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+    }
+    .opt-row {
+      display: flex;
+      align-items: center;
+      gap: 0.35rem;
+      font-size: 0.85rem;
+      margin-bottom: 0.35rem;
+      cursor: pointer;
+      user-select: none;
+    }
+    .opt-row input { width: auto; margin: 0; accent-color: var(--accent); }
+    .opt-hint { font-size: 0.72rem; color: var(--muted); margin-left: 1.45rem; margin-bottom: 0.4rem; }
+    .auth-badge {
+      display: inline-block;
+      font-size: 0.72rem;
+      padding: 0.2rem 0.45rem;
+      border-radius: 6px;
+      background: rgba(129,140,248,0.15);
+      border: 1px solid rgba(129,140,248,0.35);
+      color: #a5b4fc;
+      margin-bottom: 0.35rem;
+    }
   </style>
 </head>
 <body>
   <header>
     <h1>简易评测台</h1>
     <p class="sub">
-      智谱生成参考与关键词；<strong>绿=命中 / 红=未命中</strong> 可看哪些词拉低命中率；下方展示<strong>智谱 token</strong>与<strong>Ollama 评估计数</strong>。
+      <strong>参考要点、关键词</strong>可选手写（更权威）或留空由智谱生成；<strong>绿=命中 / 红=未命中</strong>。
       <a href="/docs">API 文档</a> · <a href="/classic.html">经典批量评测</a>
     </p>
   </header>
@@ -186,10 +214,18 @@
   <section>
     <h2>单题评测</h2>
     <textarea id="q1" placeholder="输入一个问题，例如：什么是 RAG？"></textarea>
+    <div class="opt-block">
+      <label class="opt-row"><input type="checkbox" id="refManualChk" /> 参考要点由我填写（不勾选则由智谱根据问题生成）</label>
+      <div class="opt-hint">适合教材、标准答案等，用作权威对照。</div>
+      <textarea id="refManualText" style="min-height:72px;display:none" placeholder="手写参考要点，1～4 句即可"></textarea>
+      <label class="opt-row" style="margin-top:0.5rem"><input type="checkbox" id="kwManualChk" /> 关键词由我填写（每行一个；不勾选则由智谱生成）</label>
+      <textarea id="kwManualText" style="min-height:64px;display:none" placeholder="检索&#10;幻觉&#10;文档"></textarea>
+    </div>
     <button type="button" class="btn" id="btn1"><span id="spin1" class="spinner" style="display:none"></span> 一键评测</button>
     <div class="err" id="err1"></div>
     <div id="out1" style="display:none" class="block">
-      <div class="label">智谱 · 参考要点</div>
+      <div id="auth1" class="auth-badge"></div>
+      <div class="label">参考要点（评测用标准）</div>
       <div class="body" id="ref1"></div>
       <div class="label" style="margin-top:0.75rem">关键词命中（影响 rule_must_contain）</div>
       <div id="kw1"></div>
@@ -206,6 +242,19 @@
 
   <section>
     <h2>两题对比</h2>
+    <details style="margin-bottom:0.65rem;color:var(--muted);font-size:0.82rem">
+      <summary style="cursor:pointer;color:var(--accent)">可选：手动标准（留空则两边都由智谱生成）</summary>
+      <div class="opt-block" style="margin-top:0.5rem">
+        <div class="label">问题 A — 参考要点（可选）</div>
+        <textarea id="refA" style="min-height:56px" placeholder="留空=智谱生成"></textarea>
+        <div class="label" style="margin-top:0.35rem">问题 A — 关键词，每行一个（可选）</div>
+        <textarea id="kwA" style="min-height:48px" placeholder="留空=智谱生成"></textarea>
+        <div class="label" style="margin-top:0.5rem">问题 B — 参考要点（可选）</div>
+        <textarea id="refB" style="min-height:56px" placeholder="留空=智谱生成"></textarea>
+        <div class="label" style="margin-top:0.35rem">问题 B — 关键词，每行一个（可选）</div>
+        <textarea id="kwB" style="min-height:48px" placeholder="留空=智谱生成"></textarea>
+      </div>
+    </details>
     <div class="label">问题 A</div>
     <textarea id="qa" placeholder="第一个问题"></textarea>
     <div class="label" style="margin-top:0.5rem">问题 B</div>
@@ -228,6 +277,13 @@
   </p>
 
   <script>
+    document.getElementById('refManualChk').onchange = function () {
+      document.getElementById('refManualText').style.display = this.checked ? 'block' : 'none';
+    };
+    document.getElementById('kwManualChk').onchange = function () {
+      document.getElementById('kwManualText').style.display = this.checked ? 'block' : 'none';
+    };
+
     async function api(path, body) {
       const r = await fetch(path, {
         method: 'POST',
@@ -279,24 +335,55 @@
       }
       const z = tu.zhipu || {};
       const zr = z.reference_generation || {};
+      const zkw = z.keyword_extraction || {};
       const zj = z.judge || {};
       const o = tu.ollama_local || {};
       const zSum = z.total_tokens_sum;
       const oSum = tu.ollama_local_sum_eval;
 
-      const zhipuHtml = `
-        <div class="token-card token-card--zhipu">
-          <div class="token-card__head">智谱 GLM（云端 API）</div>
+      function hasTok(u) {
+        if (!u) return false;
+        var t = u.total_tokens, p = u.prompt_tokens, c = u.completion_tokens;
+        return (t != null && Number(t) > 0) || (p != null && Number(p) > 0) || (c != null && Number(c) > 0);
+      }
+
+      let prepStages = '';
+      if (hasTok(zr)) {
+        prepStages += `
           <div class="token-stage">
-            <div class="token-stage__name">① 生成参考要点与关键词</div>
+            <div class="token-stage__name">① 生成参考要点${hasTok(zkw) ? '' : '（或与关键词同次调用）'}</div>
             <div class="token-metrics">
               ${metricCell('输入 Tokens', zr.prompt_tokens)}
               ${metricCell('输出 Tokens', zr.completion_tokens)}
               ${metricCell('本段合计', zr.total_tokens)}
             </div>
-          </div>
+          </div>`;
+      }
+      if (hasTok(zkw)) {
+        prepStages += `
           <div class="token-stage">
-            <div class="token-stage__name">② 评委打分</div>
+            <div class="token-stage__name">② 单独提取关键词（参考要点为您手写时）</div>
+            <div class="token-metrics">
+              ${metricCell('输入 Tokens', zkw.prompt_tokens)}
+              ${metricCell('输出 Tokens', zkw.completion_tokens)}
+              ${metricCell('本段合计', zkw.total_tokens)}
+            </div>
+          </div>`;
+      }
+      if (!prepStages) {
+        prepStages = `
+          <div class="token-stage">
+            <div class="token-stage__name">准备阶段</div>
+            <div class="body" style="color:var(--muted);font-size:0.8rem;margin:0">参考要点与关键词均为手动填写，未调用智谱生成（仍有评委调用）。</div>
+          </div>`;
+      }
+
+      const zhipuHtml = `
+        <div class="token-card token-card--zhipu">
+          <div class="token-card__head">智谱 GLM（云端 API）</div>
+          ${prepStages}
+          <div class="token-stage">
+            <div class="token-stage__name">${hasTok(zkw) ? '③' : '②'} 评委打分</div>
             <div class="token-metrics">
               ${metricCell('输入 Tokens', zj.prompt_tokens)}
               ${metricCell('输出 Tokens', zj.completion_tokens)}
@@ -304,7 +391,7 @@
             </div>
           </div>
           <div class="token-card__foot">
-            智谱两次调用累计约 <strong>${zSum != null ? zSum : '—'}</strong> Tokens
+            智谱本流程累计约 <strong>${zSum != null ? zSum : '—'}</strong> Tokens（含评委）
           </div>
         </div>`;
 
@@ -334,11 +421,24 @@
       const spin = document.getElementById('spin1');
       err.textContent = '';
       if (!q) { err.textContent = '请输入问题'; return; }
+      const refChk = document.getElementById('refManualChk').checked;
+      const kwChk = document.getElementById('kwManualChk').checked;
+      const refText = document.getElementById('refManualText').value.trim();
+      const kwLines = document.getElementById('kwManualText').value.split(/\n/).map(function (s) { return s.trim(); }).filter(Boolean);
+      if (refChk && !refText) { err.textContent = '已勾选手写参考要点，请填写内容或取消勾选'; return; }
+      if (kwChk && !kwLines.length) { err.textContent = '已勾选手写关键词，请每行一词或取消勾选'; return; }
+      const body = { question: q };
+      if (refChk) body.reference_answer = refText;
+      if (kwChk) body.keywords = kwLines;
       btn.disabled = true;
       spin.style.display = 'inline-block';
       document.getElementById('out1').style.display = 'none';
       try {
-        const res = await api('/api/playground/run', { question: q });
+        const res = await api('/api/playground/run', body);
+        const au = res.authority || {};
+        document.getElementById('auth1').textContent =
+          '标准来源 · 参考：' + (au.reference === 'manual' ? '手写权威' : '智谱生成') +
+          ' · 关键词：' + (au.keywords === 'manual' ? '手写' : '智谱生成');
         document.getElementById('ref1').textContent = res.reference_answer || '（空）';
         renderKeywordHits(document.getElementById('kw1'), res.keyword_hits || []);
         const miss = (res.keyword_hit_summary && res.keyword_hit_summary.missed_terms) || [];
@@ -364,11 +464,23 @@
       const spin = document.getElementById('spin2');
       err.textContent = '';
       if (!qa || !qb) { err.textContent = '请填写两个问题'; return; }
+      function lines(id) {
+        return document.getElementById(id).value.split(/\n/).map(function (s) { return s.trim(); }).filter(Boolean);
+      }
+      const cmpBody = { question_a: qa, question_b: qb };
+      const ra = document.getElementById('refA').value.trim();
+      const rb = document.getElementById('refB').value.trim();
+      const ka = lines('kwA');
+      const kb = lines('kwB');
+      if (ra) cmpBody.reference_answer_a = ra;
+      if (rb) cmpBody.reference_answer_b = rb;
+      if (ka.length) cmpBody.keywords_a = ka;
+      if (kb.length) cmpBody.keywords_b = kb;
       btn.disabled = true;
       spin.style.display = 'inline-block';
       document.getElementById('out2').style.display = 'none';
       try {
-        const res = await api('/api/playground/compare', { question_a: qa, question_b: qb });
+        const res = await api('/api/playground/compare', cmpBody);
         const del = document.getElementById('delta2');
         del.innerHTML = '';
         Object.entries(res.delta || {}).sort(([a],[b]) => a.localeCompare(b)).forEach(([k, v]) => {

@@ -82,8 +82,16 @@ class CompareResult(BaseModel):
 
 class PlaygroundRunBody(BaseModel):
     question: str = Field(min_length=1, max_length=8000)
+    # 非空则采用「权威手动」参考要点；留空则由智谱根据问题生成
+    reference_answer: str | None = Field(None, max_length=12000)
+    # 非空则采用手动关键词；留空则由智谱生成（或仅在你已手写参考时单独抽词）
+    keywords: list[str] | None = Field(None, max_length=40)
 
 
 class PlaygroundCompareBody(BaseModel):
     question_a: str = Field(min_length=1, max_length=8000)
     question_b: str = Field(min_length=1, max_length=8000)
+    reference_answer_a: str | None = Field(None, max_length=12000)
+    keywords_a: list[str] | None = Field(None, max_length=40)
+    reference_answer_b: str | None = Field(None, max_length=12000)
+    keywords_b: list[str] | None = Field(None, max_length=40)
