@@ -24,7 +24,7 @@ copy .env.example .env   # 按需填写 JUDGE_API_KEY
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-- **简易评测首页**：<http://127.0.0.1:8000/>（智谱 + Ollama 一键对比）
+- **简易评测首页**：<http://127.0.0.1:8000/>（智谱 + Ollama一键对比）
 - 经典批量控制台：<http://127.0.0.1:8000/classic.html> 或 <http://127.0.0.1:8000/ui/>
 - API 文档：<http://127.0.0.1:8000/docs>
 
