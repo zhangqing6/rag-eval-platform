@@ -1,6 +1,6 @@
 # RAG / Agent 评测与回归平台
 
-面向 **任意 HTTP 接口**（ LangGraph Agent、RAG 服务等）的批量跑批、规则与 LLM-as-judge 打分、两次实验指标对比，并支持 **CSV 导出**
+面向 **任意 HTTP 接口**（ LangGraph Agent、RAG 服务等）的批量跑批、规则与 LLM-as-judge 打分、两次实验指标对比，并支持 **CSV 导出**。
 
 演示视频：
 【RAG / Agent 评测与回归平台】 https://www.bilibili.com/video/BV1YMDFByE3b/?share_source=copy_web&vd_source=44cb484ede030bd06d3f1307adebee80
